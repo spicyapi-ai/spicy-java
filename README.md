@@ -253,7 +253,7 @@ contract, public repository.
 <div align="center">
 <sub>
 
-Also available in [TypeScript](https://github.com/Spicy-API/spicy-sdk) · [Python](https://github.com/Spicy-API/spicy-python) · [Go](https://github.com/Spicy-API/spicy-go) · [PHP](https://github.com/Spicy-API/spicy-php) · **Java**
+Also available in [TypeScript](https://github.com/spicyapi-ai/spicy-sdk) · [Python](https://github.com/spicyapi-ai/spicy-python) · [Go](https://github.com/spicyapi-ai/spicy-go) · [PHP](https://github.com/spicyapi-ai/spicy-php) · **Java**
 
 </sub>
 </div>
