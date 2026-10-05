@@ -26,11 +26,37 @@ import java.util.Optional;
  * @param pending         true while the artifact is still being stored; keep polling rather than
  *                        treating the task as finished
  * @param unavailable     true when this artifact will never arrive
+ * @param layer           where this asset sits in the picture, present only on layer
+ *                        decomposition results; {@code null} everywhere else
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TaskAsset(String key, @JsonProperty("url") String signedUrl, Instant expiresAt, String mime,
                         Integer width, Integer height, Double durationSeconds, Long bytes, String role,
-                        Boolean nsfw, boolean pending, boolean unavailable) {
+                        Boolean nsfw, boolean pending, boolean unavailable, TaskAssetLayer layer) {
+
+    /**
+     * The shape this record had before {@code layer} was added, kept so existing callers still
+     * compile.
+     *
+     * @param key             compatibility identifier
+     * @param signedUrl       a ready-to-use signed URL, absent while pending or unavailable
+     * @param expiresAt       expiry of {@code url}
+     * @param mime            the artifact's media type
+     * @param width           pixel width, for visual artifacts
+     * @param height          pixel height, for visual artifacts
+     * @param durationSeconds measured duration, for audio and video
+     * @param bytes           stored size
+     * @param role            which output this is
+     * @param nsfw            the service's own classification of the artifact
+     * @param pending         true while the artifact is still being stored
+     * @param unavailable     true when this artifact will never arrive
+     */
+    public TaskAsset(String key, String signedUrl, Instant expiresAt, String mime, Integer width,
+                     Integer height, Double durationSeconds, Long bytes, String role, Boolean nsfw,
+                     boolean pending, boolean unavailable) {
+        this(key, signedUrl, expiresAt, mime, width, height, durationSeconds, bytes, role, nsfw, pending,
+                unavailable, null);
+    }
 
     /**
      * The signed URL, when one is available.

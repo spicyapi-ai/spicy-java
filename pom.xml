@@ -6,11 +6,11 @@
 
   <groupId>ai.spicyapi</groupId>
   <artifactId>spicyapi-java</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <packaging>jar</packaging>
 
   <name>SpicyAPI Java client</name>
-  <description>Official Java client for SpicyAPI — image, video and text generation behind one API.</description>
+  <description>Official Java client for SpicyAPI — image, video, audio and text generation behind one API.</description>
   <url>https://spicyapi.ai</url>
   <inceptionYear>2026</inceptionYear>
 

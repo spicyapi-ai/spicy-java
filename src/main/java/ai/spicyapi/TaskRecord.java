@@ -20,8 +20,10 @@ import java.util.Optional;
  * @param errorMessage     human-readable failure reason; prose, translated, never to be parsed
  * @param cost             the final charge once {@code settled}, otherwise the amount still held
  * @param settled          whether {@code cost} is final. On success the charge is capped at the
- *                         hold and unused funds are released; a failed or expired task releases
- *                         the hold in full
+ *                         hold and unused funds are released; a failed or expired task normally
+ *                         releases the hold in full. The one exception is a
+ *                         {@code content_rejected} task on a model whose page states that such
+ *                         refusals are billed, which settles at the accepted estimate
  * @param createdAt        when the task was accepted
  * @param deadlineAt       the service's execution deadline
  * @param completedAt      when the task reached a terminal state
@@ -31,13 +33,46 @@ import java.util.Optional;
  * @param contentRemovedBy {@code user} or {@code system}, present only once content is gone
  * @param purgedAt         when the content was destroyed, when it was
  * @param retention        the removal schedule for this task's content
+ * @param requestId        the {@code X-Request-Id} of the request that created this task, when one
+ *                         was recorded. It matches a synchronous text call made through the OpenAI,
+ *                         Anthropic or Gemini compatible endpoints to the task that charged it
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TaskRecord(String taskId, String sourceTaskId, String model, TaskState state, JsonNode input,
                          TaskOutput output, TaskErrorCode errorCode, String errorMessage, BigDecimal cost,
                          boolean settled, Instant createdAt, Instant deadlineAt, Instant completedAt,
                          String contentState, String contentRemovedBy, Instant purgedAt,
-                         TaskRetention retention) {
+                         TaskRetention retention, String requestId) {
+
+    /**
+     * The shape this record had before {@code requestId} was added, kept so existing callers still
+     * compile.
+     *
+     * @param taskId           the task identifier
+     * @param sourceTaskId     present when this task was created by an explicit retry
+     * @param model            the endpoint this task ran on
+     * @param state            the lifecycle state
+     * @param input            normalized model input
+     * @param output           the result
+     * @param errorCode        the failure identifier
+     * @param errorMessage     human-readable failure reason
+     * @param cost             the final charge once {@code settled}, otherwise the amount held
+     * @param settled          whether {@code cost} is final
+     * @param createdAt        when the task was accepted
+     * @param deadlineAt       the service's execution deadline
+     * @param completedAt      when the task reached a terminal state
+     * @param contentState     whether the content is still stored
+     * @param contentRemovedBy who removed the content
+     * @param purgedAt         when the content was destroyed
+     * @param retention        the removal schedule for this task's content
+     */
+    public TaskRecord(String taskId, String sourceTaskId, String model, TaskState state, JsonNode input,
+                      TaskOutput output, TaskErrorCode errorCode, String errorMessage, BigDecimal cost,
+                      boolean settled, Instant createdAt, Instant deadlineAt, Instant completedAt,
+                      String contentState, String contentRemovedBy, Instant purgedAt, TaskRetention retention) {
+        this(taskId, sourceTaskId, model, state, input, output, errorCode, errorMessage, cost, settled,
+                createdAt, deadlineAt, completedAt, contentState, contentRemovedBy, purgedAt, retention, null);
+    }
 
     /**
      * Whether the task has finished, whatever the outcome.
@@ -76,6 +111,18 @@ public record TaskRecord(String taskId, String sourceTaskId, String model, TaskS
      */
     public Optional<String> outputText() {
         return output == null ? Optional.empty() : Optional.ofNullable(output.text());
+    }
+
+    /**
+     * The structured transcript of a speech-to-text task, with timing and language.
+     *
+     * <p>{@link #outputText()} still holds the plain transcript; this is present only on
+     * endpoints that report timing.
+     *
+     * @return the transcript, or empty when the task has none
+     */
+    public Optional<TaskTranscript> transcript() {
+        return output == null ? Optional.empty() : Optional.ofNullable(output.transcript());
     }
 
     /**

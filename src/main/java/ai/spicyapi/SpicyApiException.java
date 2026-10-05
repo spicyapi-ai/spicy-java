@@ -140,6 +140,9 @@ public final class SpicyApiException extends SpicyException {
                     + "identically.";
             case 40201 -> "Insufficient balance. Add funds, then submit again.";
             case 40202 -> "A spend cap was reached. Raise the cap or wait for the next window.";
+            case 40310 -> "The account has not verified its email address, so it cannot run models yet. Open "
+                    + "the verification link sent at sign-up, or send a new one from the Console; the same "
+                    + "key starts working once the address is verified.";
             case 40901 -> "The quote expired or the request changed after it was quoted. Quote again and send "
                     + "the new quoteId and expectedCost.";
             case 50301 -> "This model has no usable deployment or effective price at the moment. Back off and "

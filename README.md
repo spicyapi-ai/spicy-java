@@ -2,7 +2,7 @@
 
 # spicyapi-java
 
-**Official Java SDK for [SpicyAPI](https://spicyapi.ai)** — image, video and text models behind one API.
+**Official Java SDK for [SpicyAPI](https://spicyapi.ai)** — image, video, audio and text models behind one API.
 
 [Get a key](https://spicyapi.ai) · [Models](https://spicyapi.ai/models) · [Docs](https://docs.spicyapi.ai) · [Status](https://status.spicyapi.ai)
 
@@ -10,7 +10,7 @@
 
 ---
 
-One endpoint in front of 83 model families across 121 callable endpoints, billed in USD per request
+One endpoint in front of 142 model families across 214 callable endpoints, billed in USD per request
 rather than in credits. Media generation is asynchronous and quotable before you spend; text models
 speak the OpenAI, Anthropic and Gemini wire formats.
 
@@ -56,7 +56,13 @@ Build the input from that model's own `inputSchema` — every model has differen
 
 **Check `outputText()` before walking `assets()`.** Transcription and similar endpoints put the
 whole result in the text field and return no files at all; a client that only looks for files
-reports a perfectly successful task as having produced nothing.
+reports a perfectly successful task as having produced nothing. A transcription that reports timing
+also has `transcript()`: the detected language, per-word start and end times and, for multichannel
+audio, one entry per channel.
+
+A layer decomposition returns a base image followed by transparent layers. Each asset's `layer()`
+holds its `zIndex` and, when `positioned()`, the `boundingBox` that places it on the base; stack them
+by ascending `zIndex` to rebuild the picture.
 
 ## Start from a local file
 
@@ -88,8 +94,10 @@ of what the presigned URL signed, so they are forwarded **unchanged** — drop o
 helpfully add one and storage answers 403. And no SpicyAPI key is attached: the URL is itself the
 grant, and it points at storage rather than at us.
 
-Images are accepted to 10 MiB, audio and video to 90 MiB. The client refuses an oversized file
-locally, before the ticket is requested.
+Images are accepted to 10 MiB; audio, video and reference documents to 90 MiB. The client refuses
+an oversized file locally, before the ticket is requested. Documents — PDF, Word, Excel, PowerPoint,
+Keynote, Pages, Numbers, plain text and Markdown — are for models whose schema asks for a reference
+file, and `uploadFile` infers their type from the extension like any other.
 
 ## Keep the result for less time
 
@@ -201,6 +209,7 @@ status alone cannot tell you what to do:
 | `40003` | uploaded bytes do not match their ticket | start over from a fresh ticket; committing again cannot fix it |
 | `40004` | no deployment serves that parameter combination | change the parameter named in the message |
 | `40201` | insufficient balance | add funds |
+| `40310` | the account has not verified its email address | open the verification link; the same key then works |
 | `40901` | the price moved before the task was created | quote again, keep the same idempotency key |
 | `503` | a dependency is briefly unavailable | back off by `Retry-After` |
 | `50301` | no usable deployment or price right now | back off, or pick another model |
@@ -226,6 +235,11 @@ collected later.
 **Text models.** They speak the OpenAI, Anthropic and Gemini wire formats — the established Java
 clients for those already work against `https://api.spicyapi.ai/v1` with the same key. Duplicating
 them here would just be a worse version of something you can already use.
+
+Chat models that read images, video or audio still need this package for one thing: getting a local
+file to them. Upload it here and put the returned `spicy://f/…` URI in an `image_url`, `video_url`
+or `audio_url` content part. Uploaded images also keep the up-front hold small, and an `audio_url`
+part accepts only an uploaded file.
 
 **Client-side applications.** Never ship this key inside an Android app, a desktop binary or
 anything else a user can open. Call from your server.

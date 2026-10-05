@@ -142,6 +142,19 @@ class TaskLifecycleTest {
     }
 
     @Test
+    @DisplayName("40310 is an unverified email address, not a key or network problem")
+    void unverifiedEmail() {
+        SpicyApiException unverified = new SpicyApiException("x", 403, 40310, "r", null);
+        SpicyApiException otherForbidden = new SpicyApiException("x", 403, 40399, "r", null);
+
+        assertTrue(unverified.remediation().contains("verif"), unverified.remediation());
+        assertTrue(unverified.remediation().contains("email"), unverified.remediation());
+        assertFalse(unverified.remediation().equals(otherForbidden.remediation()),
+                "the generic 403 advice points at keys and IPs, which cannot fix this");
+        assertFalse(unverified.transientFailure());
+    }
+
+    @Test
     @DisplayName("503 carries three different business codes, and each gets its own advice")
     void businessCodesAreNotTheHttpStatus() {
         SpicyApiException dependency = new SpicyApiException("x", 503, 503, "r", null);

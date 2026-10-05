@@ -147,6 +147,45 @@ class MediaUploadTest {
     }
 
     @Test
+    @DisplayName("reference documents resolve from their extension and share the 90 MiB ceiling")
+    void documentTypes() {
+        assertEquals(Optional.of(UploadContentType.APPLICATION_PDF), UploadContentType.fromFileName("brief.PDF"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_DOCX), UploadContentType.fromFileName("a.docx"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_MSWORD), UploadContentType.fromFileName("a.doc"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_XLSX), UploadContentType.fromFileName("a.xlsx"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_MS_EXCEL), UploadContentType.fromFileName("a.xls"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_PPTX), UploadContentType.fromFileName("a.pptx"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_MS_POWERPOINT),
+                UploadContentType.fromFileName("a.ppt"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_KEYNOTE), UploadContentType.fromFileName("a.key"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_PAGES), UploadContentType.fromFileName("a.pages"));
+        assertEquals(Optional.of(UploadContentType.APPLICATION_NUMBERS), UploadContentType.fromFileName("a.numbers"));
+        assertEquals(Optional.of(UploadContentType.TEXT_PLAIN), UploadContentType.fromFileName("a.txt"));
+        assertEquals(Optional.of(UploadContentType.TEXT_MARKDOWN), UploadContentType.fromFileName("a.md"));
+        assertEquals(Optional.of(UploadContentType.TEXT_MARKDOWN), UploadContentType.fromFileName("a.markdown"));
+        assertEquals(UploadContentType.TEXT_MARKDOWN, UploadContentType.fromMediaType("text/markdown"));
+
+        assertEquals(90L * 1024 * 1024, UploadContentType.APPLICATION_PDF.maxBytes());
+        assertTrue(UploadContentType.APPLICATION_PDF.document());
+        assertTrue(UploadContentType.TEXT_PLAIN.document());
+        assertFalse(UploadContentType.IMAGE_PNG.document());
+        assertFalse(UploadContentType.VIDEO_MP4.document());
+        assertFalse(UploadContentType.AUDIO_WAV.document());
+    }
+
+    @Test
+    @DisplayName("a 20 MiB PDF is not refused locally and is declared as application/pdf")
+    void documentTicket() throws Exception {
+        try (StubServer server = uploadStub()) {
+            server.client().createUploadUrl(UploadContentType.APPLICATION_PDF, 20L * 1024 * 1024);
+
+            String body = server.first("/upload-url").body();
+            assertTrue(body.contains("\"contentType\":\"application/pdf\""), body);
+            assertTrue(body.contains("\"bytes\":20971520"), body);
+        }
+    }
+
+    @Test
     @DisplayName("a download URL can be minted for a named output")
     void downloadUrl() throws Exception {
         try (StubServer server = new StubServer().onData("/api/v1/common/download-url", """

@@ -90,6 +90,75 @@ class JsonMappingTest {
     }
 
     @Test
+    @DisplayName("a speech-to-text result keeps the plain text and adds the timed transcript")
+    void transcriptMaps() throws Exception {
+        TaskRecord record = MAPPER.readValue("""
+                {"taskId":"t","model":"m","state":"succeeded","cost":"0.01","settled":true,
+                 "createdAt":"2026-10-05T08:30:00Z","requestId":"req_abc",
+                 "output":{"text":"hello there","transcript":{"text":"hello there","language":"en",
+                   "languageCode":"eng","languageProbability":0.98,"durationSeconds":1.5,
+                   "words":[{"text":"hello","start":0.1,"end":0.5,"type":"word","speakerId":"speaker_0"},
+                            {"text":"there","start":0.6,"end":1.0}],
+                   "channels":[{"index":1,"text":"there","words":[{"text":"there","start":0.6,"end":1.0}]}]}}}""",
+                TaskRecord.class);
+
+        assertEquals("hello there", record.outputText().orElseThrow(), "text stays the plain transcript");
+        TaskTranscript transcript = record.transcript().orElseThrow();
+        assertEquals("eng", transcript.languageCode());
+        assertEquals(0.98, transcript.languageProbability());
+        assertEquals(2, transcript.words().size());
+        assertEquals(0.1, transcript.words().get(0).start());
+        assertEquals("speaker_0", transcript.words().get(0).speakerId());
+        assertNull(transcript.words().get(1).speakerId());
+        assertEquals(1, transcript.channels().get(0).index());
+        assertEquals(1, transcript.channels().get(0).words().size());
+        assertEquals("req_abc", record.requestId());
+
+        TaskRecord plain = MAPPER.readValue("""
+                {"taskId":"t","model":"m","state":"succeeded","cost":"0","settled":true,
+                 "createdAt":"2026-10-05T08:30:00Z","output":{"text":"no timing"}}""", TaskRecord.class);
+        assertTrue(plain.transcript().isEmpty());
+        assertNull(plain.requestId());
+        assertEquals(List.of(), MAPPER.readValue("{\"text\":\"x\"}", TaskTranscript.class).words(),
+                "absent arrays come back empty");
+    }
+
+    @Test
+    @DisplayName("layer decomposition assets carry their stacking order and placement")
+    void layerMaps() throws Exception {
+        TaskRecord record = MAPPER.readValue("""
+                {"taskId":"t","model":"m","state":"succeeded","cost":"0.02","settled":true,
+                 "createdAt":"2026-10-05T08:30:00Z","output":{"assets":[
+                   {"key":"out-0","url":"https://cdn.example.test/0.png","layer":{"zIndex":0}},
+                   {"key":"out-1","url":"https://cdn.example.test/1.png",
+                    "layer":{"zIndex":1,"name":"cup","boundingBox":[10,20,110,220]}}]}}""", TaskRecord.class);
+
+        TaskAssetLayer base = record.assets().get(0).layer();
+        TaskAssetLayer cup = record.assets().get(1).layer();
+        assertEquals(0, base.zIndex());
+        assertFalse(base.positioned(), "the base image has no box");
+        assertEquals(List.of(), base.boundingBox());
+        assertEquals(1, cup.zIndex());
+        assertEquals("cup", cup.name());
+        assertEquals(List.of(10, 20, 110, 220), cup.boundingBox());
+        assertTrue(cup.positioned());
+
+        TaskAsset ordinary = MAPPER.readValue("{\"key\":\"out-0\",\"url\":\"https://cdn.example.test/a.png\"}",
+                TaskAsset.class);
+        assertNull(ordinary.layer(), "only layer decomposition results carry a layer");
+    }
+
+    @Test
+    @DisplayName("the constructors from before the new fields still compile and leave them empty")
+    void previousConstructorsStillWork() {
+        assertNull(new TaskOutput("t", null).transcript());
+        assertEquals(List.of(), new TaskOutput("t", null).assets());
+        assertNull(new TaskAsset("k", null, null, null, null, null, null, null, null, null, true, false).layer());
+        assertNull(new TaskRecord("t", null, "m", TaskState.RUNNING, null, null, null, null,
+                BigDecimal.ZERO, false, null, null, null, null, null, null, null).requestId());
+    }
+
+    @Test
     @DisplayName("a pending asset has no URL and is not readable")
     void pendingAsset() throws Exception {
         TaskAsset asset = MAPPER.readValue("""

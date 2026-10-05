@@ -10,6 +10,10 @@ import java.util.Optional;
  *
  * <p>A publicly reachable HTTPS URL can be placed in model input directly and needs no upload
  * at all; these types matter only for bytes held locally.
+ *
+ * <p>The document types (PDF, Office, iWork, plain text and Markdown) are reference files for the
+ * models whose schema asks for one. The service checks only that the bytes belong to the declared
+ * family; it does not read the content.
  */
 public enum UploadContentType {
 
@@ -28,7 +32,34 @@ public enum UploadContentType {
     /** MP3 audio, up to 90 MiB and 600 seconds. */
     AUDIO_MPEG("audio/mpeg", 90L * 1024 * 1024),
     /** WAV audio, up to 90 MiB and 600 seconds. */
-    AUDIO_WAV("audio/wav", 90L * 1024 * 1024);
+    AUDIO_WAV("audio/wav", 90L * 1024 * 1024),
+    /** PDF document, up to 90 MiB. */
+    APPLICATION_PDF("application/pdf", 90L * 1024 * 1024),
+    /** Legacy Word document ({@code .doc}), up to 90 MiB. */
+    APPLICATION_MSWORD("application/msword", 90L * 1024 * 1024),
+    /** Word document ({@code .docx}), up to 90 MiB. */
+    APPLICATION_DOCX("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            90L * 1024 * 1024),
+    /** Legacy Excel workbook ({@code .xls}), up to 90 MiB. */
+    APPLICATION_MS_EXCEL("application/vnd.ms-excel", 90L * 1024 * 1024),
+    /** Excel workbook ({@code .xlsx}), up to 90 MiB. */
+    APPLICATION_XLSX("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            90L * 1024 * 1024),
+    /** Legacy PowerPoint deck ({@code .ppt}), up to 90 MiB. */
+    APPLICATION_MS_POWERPOINT("application/vnd.ms-powerpoint", 90L * 1024 * 1024),
+    /** PowerPoint deck ({@code .pptx}), up to 90 MiB. */
+    APPLICATION_PPTX("application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            90L * 1024 * 1024),
+    /** Keynote deck ({@code .key}), up to 90 MiB. */
+    APPLICATION_KEYNOTE("application/vnd.apple.keynote", 90L * 1024 * 1024),
+    /** Pages document ({@code .pages}), up to 90 MiB. */
+    APPLICATION_PAGES("application/vnd.apple.pages", 90L * 1024 * 1024),
+    /** Numbers spreadsheet ({@code .numbers}), up to 90 MiB. */
+    APPLICATION_NUMBERS("application/vnd.apple.numbers", 90L * 1024 * 1024),
+    /** Plain UTF-8 text ({@code .txt}), up to 90 MiB. */
+    TEXT_PLAIN("text/plain", 90L * 1024 * 1024),
+    /** Markdown ({@code .md}), up to 90 MiB. */
+    TEXT_MARKDOWN("text/markdown", 90L * 1024 * 1024);
 
     private static final Map<String, UploadContentType> BY_EXTENSION = Map.ofEntries(
             Map.entry("jpg", IMAGE_JPEG),
@@ -39,7 +70,20 @@ public enum UploadContentType {
             Map.entry("mp4", VIDEO_MP4),
             Map.entry("webm", VIDEO_WEBM),
             Map.entry("mp3", AUDIO_MPEG),
-            Map.entry("wav", AUDIO_WAV));
+            Map.entry("wav", AUDIO_WAV),
+            Map.entry("pdf", APPLICATION_PDF),
+            Map.entry("doc", APPLICATION_MSWORD),
+            Map.entry("docx", APPLICATION_DOCX),
+            Map.entry("xls", APPLICATION_MS_EXCEL),
+            Map.entry("xlsx", APPLICATION_XLSX),
+            Map.entry("ppt", APPLICATION_MS_POWERPOINT),
+            Map.entry("pptx", APPLICATION_PPTX),
+            Map.entry("key", APPLICATION_KEYNOTE),
+            Map.entry("pages", APPLICATION_PAGES),
+            Map.entry("numbers", APPLICATION_NUMBERS),
+            Map.entry("txt", TEXT_PLAIN),
+            Map.entry("md", TEXT_MARKDOWN),
+            Map.entry("markdown", TEXT_MARKDOWN));
 
     private final String mediaType;
     private final long maxBytes;
@@ -57,6 +101,16 @@ public enum UploadContentType {
     @JsonValue
     public String mediaType() {
         return mediaType;
+    }
+
+    /**
+     * Whether this is one of the reference document types rather than an image, audio or video.
+     *
+     * @return true for PDF, Office, iWork, plain text and Markdown
+     */
+    public boolean document() {
+        return !mediaType.startsWith("image/") && !mediaType.startsWith("audio/")
+                && !mediaType.startsWith("video/");
     }
 
     /**

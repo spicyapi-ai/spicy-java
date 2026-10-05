@@ -12,8 +12,9 @@ import java.time.Instant;
  *                     several do it is {@code field=value} pairs sorted by field name and joined
  *                     with {@code ;}
  * @param unit         what the price is per: {@code per_image}, {@code per_second},
- *                     {@code per_request} or {@code per_1k_tokens}. Left as a string because the
- *                     platform may add units, and an unrecognised unit should still display
+ *                     {@code per_request}, {@code per_1k_tokens} or {@code per_1k_characters}.
+ *                     Left as a string because the platform may add units, and an unrecognised
+ *                     unit should still display
  * @param price        the price this account pays
  * @param regularPrice the undiscounted price, present only while an offer applies
  * @param offerLabel   customer-facing name of the active offer, when there is one

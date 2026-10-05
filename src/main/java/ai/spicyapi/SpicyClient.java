@@ -30,12 +30,14 @@ import java.util.Set;
 /**
  * Java client for the SpicyAPI generation platform.
  *
- * <p>SpicyAPI is predominantly image and video generation. Its text models are served through the
- * OpenAI, Anthropic and Gemini compatible layers, where the official vendor SDKs work by changing
- * only the base URL, so this client does not duplicate them. What it does cover is the part that
- * has no standard client: the asynchronous media task, from catalogue lookup and price quote
+ * <p>SpicyAPI is predominantly image, video and audio generation. Its text models are served
+ * through the OpenAI, Anthropic and Gemini compatible layers, where the official vendor SDKs work by
+ * changing only the base URL, so this client does not duplicate them. What it does cover is the part
+ * that has no standard client: the asynchronous media task, from catalogue lookup and price quote
  * through submission, polling, retry and content destruction, plus direct media upload, download
- * URLs and callback signature verification.
+ * URLs and callback signature verification. Upload is also how a local image, video or audio file
+ * reaches a chat model: send the {@code spicy://f/...} URI that {@link #uploadFile} returns in an
+ * {@code image_url}, {@code video_url} or {@code audio_url} content part.
  *
  * <h2>Dependencies</h2>
  * Jackson ({@code com.fasterxml.jackson.core:jackson-databind}) for JSON, and the JDK's own
