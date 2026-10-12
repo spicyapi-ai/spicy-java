@@ -18,7 +18,7 @@ speak the OpenAI, Anthropic and Gemini wire formats.
 <dependency>
   <groupId>ai.spicyapi</groupId>
   <artifactId>spicyapi-java</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -94,10 +94,130 @@ of what the presigned URL signed, so they are forwarded **unchanged** — drop o
 helpfully add one and storage answers 403. And no SpicyAPI key is attached: the URL is itself the
 grant, and it points at storage rather than at us.
 
-Images are accepted to 10 MiB; audio, video and reference documents to 90 MiB. The client refuses
-an oversized file locally, before the ticket is requested. Documents — PDF, Word, Excel, PowerPoint,
-Keynote, Pages, Numbers, plain text and Markdown — are for models whose schema asks for a reference
-file, and `uploadFile` infers their type from the extension like any other.
+Images are accepted to 10 MiB; audio, video and reference documents to 90 MiB; LoRA weights to
+2 GiB. The client refuses an oversized file locally, before the ticket is requested. Documents —
+PDF, Word, Excel, PowerPoint, Keynote, Pages, Numbers, plain text and Markdown — are for models whose
+schema asks for a reference file, and `uploadFile` infers their type from the extension like any
+other. A `.safetensors` file is sent as `application/octet-stream`
+(`UploadContentType.APPLICATION_OCTET_STREAM`); the commit checks that it is a complete safetensors
+file, and its URI goes in `loras[].path`. `uploadFile` streams from disk rather than reading the file
+into memory, but a file that size still needs a longer `uploadTimeout` than the 10-minute default
+unless the link sustains about 30 Mbps.
+
+## Asset library
+
+An upload's `spicy://f/` URI lasts one day. Files you use again and again — a character portrait, a
+style reference, a voice sample — belong in the asset library instead: each saved file gets a stable
+`uri` of the form `spicy://a/<id>` that works in any media field of model inputs sent with keys of
+the same workspace, until it is deleted. The library never hands out a public or permanent link.
+
+The key decides the library. A key created in your personal workspace reaches your personal library;
+a key created in a team workspace, by any member, reaches that team's shared library and never
+anyone's personal one. With a team key, what may change follows the current role of the member who
+created it: owner and admin can save, rename, favorite and delete anything; developer can save, and
+rename, favorite or delete what they saved; billing and readonly can only read and use assets.
+
+```java
+SpicyAssets assets = client.assets();
+
+// Save the first output of one of your successful tasks (with a team key, one of the team's).
+// fromUrl(...) and fromUpload(fileId) work the same way. The required Idempotency-Key is added
+// for you; pass your own as a second argument to replay a save after an uncertain response.
+Asset hero = assets.create(CreateAssetRequest.fromTaskOutput("job_...", 0).withName("Hero portrait"));
+
+// Or upload a local file and save it in one call; the name defaults to the file name.
+Asset voice = assets.uploadFile(Path.of("voice-sample.wav"));
+
+// Later, in any request: the uri goes where the model's schema expects a file.
+Map<String, Object> input = Map.of("prompt", "Slow push-in, light rain", "image_url", hero.uri());
+
+// Every saved image, newest first, across all pages. Breaking out of the loop stops the fetching.
+for (Asset asset : assets.listAll(AssetFilter.all().withKind(AssetKind.IMAGE).withSearch("portrait"))) {
+    System.out.println(asset.uri() + " " + asset.name() + " " + asset.bytes());
+}
+```
+
+| Method | Returns |
+| --- | --- |
+| `assets().create(request)` / `create(request, idempotencyKey)` | The saved asset: `id`, `uri`, `name`, `kind`, `bytes`, `favorite`, `model`, `previewUrl`, ... |
+| `assets().uploadFile(path)` / `uploadFile(path, name)` / `uploadFile(path, contentType, name)` | Uploads with `uploadFile`, then saves; the saved asset |
+| `assets().list(filter)` | One `AssetPage`: `items()`, `nextCursor()` (absent on the last page), `hasMore()` |
+| `assets().listAll(filter)` | A lazy `Iterable<Asset>` over every matching asset |
+| `assets().get(id)` | One asset with a fresh `previewUrl` |
+| `assets().update(id, name, favorite)` | The updated asset; pass `null` for what should not change |
+| `assets().delete(id)` | `AssetDeleted`; the `uri` stops working at once |
+| `assets().usage()` | `AssetUsage`: `scope()` (which library, role, `canWrite`, `canTopUp`), plan, what is stored, limits |
+| `assets().characters().list(filter)` / `listAll(filter)` | Characters, newest first: `id`, `name`, `note`, `cover`, `assets` (the images in order), `count` |
+| `assets().characters().get(id)` | One character with its images in order |
+
+`AssetFilter` takes `withKind`, `withSources`, `withSearch` (sent as `q`), `withFavorite`,
+`withCollectionId`, `withEntityId`, `withSort`, `withCursor` and `withLimit`.
+
+- An asset id may be the bare `ast_...` id or the `spicy://a/...` reference. A blank one is refused
+  locally, before any request.
+- `withFavorite(true)` lists only favorites and `withFavorite(false)` only the assets that are not;
+  `false` is sent, `null` leaves the filter out.
+- `AssetSort` is `RECENT` (the default, newest first), `OLDEST`, `NAME` or `SIZE`;
+  `AssetSort.fromWireValue` refuses anything else. A `nextCursor` only works with the sort it came
+  from; sending it with another one fails with `400`, which is thrown as it is and not retried.
+  `listAll` keeps your filter and sort on every page.
+- `update` sends only the fields you pass, so a favorite toggle leaves the name alone; passing
+  neither is refused locally.
+- Saving the same task output, upload or URL again returns the asset you already have.
+- `previewUrl` is a private preview signed for at most 20 minutes. Show it; store `uri`.
+- Storage unlocks with the owner's lifetime top-ups, and the owner's personal and team libraries
+  share one allowance. `usage()` reports the whole allowance; with a team key whose creator is not
+  the owner, `scope().canTopUp()` is false and `lifetimeTopup()` and `topupToNextTier()` are empty.
+- A refused call throws `SpicyApiException` with a `reason()`: `asset_library_locked`,
+  `asset_library_full` and `asset_file_too_large` (400, plan limits; read `usage()` for the
+  numbers), `asset_daily_limit` (429, resets at 00:00 UTC, with `retryAfter()`),
+  `asset_storage_full` (503, temporary), `asset_permission_denied` (403, the team role does not
+  allow this change) and `asset_workspace_forbidden` (403, this key cannot reach that library, for
+  example because its creator left the team). `assetErrorReason()` maps the value onto
+  `AssetErrorReason`, which matches the contract; `reason()` carries any other value the server
+  sends unchanged, so keep a default branch. A daily-limit refusal is thrown at once rather than
+  after waiting out the request budget: its `Retry-After` runs until midnight UTC.
+
+```java
+try {
+    assets.create(CreateAssetRequest.fromUrl("https://example.com/still.png"));
+} catch (SpicyApiException failure) {
+    if (failure.assetErrorReason().orElse(null) == AssetErrorReason.ASSET_LIBRARY_FULL) {
+        AssetUsage usage = assets.usage();
+        System.out.println("Full on " + usage.tier().name() + "; next plan: "
+                + usage.next().map(AssetPlan::name).orElse("none"));
+    } else {
+        throw failure;
+    }
+}
+```
+
+### Favorites, folders and characters
+
+Every asset has a `favorite` flag; in a team library everyone sees the same favorites. Folders
+(collections in the API) and characters are created and arranged on the Assets page of the web app;
+the API reads them. Each asset also carries `model` and `modelName`, the model that generated it
+(empty strings for uploads and links).
+
+```java
+// Mark a favorite, then list only favorites in one folder, A to Z.
+assets.update(hero.uri(), null, true);
+AssetPage page = assets.list(AssetFilter.all()
+        .withFavorite(true).withCollectionId("col_...").withSort(AssetSort.NAME));
+
+// A character is a named, ordered set of images. Put its images, in order, into the model's
+// reference image field (getModel shows which field takes a list of images).
+AssetCharacter mia = assets.characters().get("ety_...");
+List<String> references = mia.uris();                     // ["spicy://a/ast_...", ...]
+```
+
+An unknown folder, and an unknown character, both fail with `404`. Characters used to be called
+personas: existing `spicy://p/<id>` references keep resolving to the same images, in your personal
+library only; new code should use the `spicy://a/` references a character lists.
+
+See the asset library guide:
+[organizing](https://docs.spicyapi.ai/docs/media#asset-library-organize) and
+[characters](https://docs.spicyapi.ai/docs/media#asset-library-characters).
 
 ## Keep the result for less time
 
@@ -215,8 +335,12 @@ status alone cannot tell you what to do:
 | `50301` | no usable deployment or price right now | back off, or pick another model |
 | `50302` | a synchronous generation failed upstream and was refunded | retry under a **new** idempotency key; the original one replays the failure |
 
+When the failure carries a machine-readable `data.reason` — the asset library's refusals do —
+`reason()` returns it verbatim and `assetErrorReason()` maps it; branch on those rather than on the
+message.
+
 `remediation()` returns the same advice at runtime, and `describe()` puts status, code, request id,
-message and advice on one line for a log record. Quote `requestId()` to support.
+reason, message and advice on one line for a log record. Quote `requestId()` to support.
 
 ## Two things that will save you money
 

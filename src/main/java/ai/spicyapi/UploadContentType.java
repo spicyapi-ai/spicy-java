@@ -14,6 +14,9 @@ import java.util.Optional;
  * <p>The document types (PDF, Office, iWork, plain text and Markdown) are reference files for the
  * models whose schema asks for one. The service checks only that the bytes belong to the declared
  * family; it does not read the content.
+ *
+ * <p>{@link #APPLICATION_OCTET_STREAM} carries LoRA weights: a {@code .safetensors} file, for a
+ * model input's {@code loras[].path}.
  */
 public enum UploadContentType {
 
@@ -59,7 +62,13 @@ public enum UploadContentType {
     /** Plain UTF-8 text ({@code .txt}), up to 90 MiB. */
     TEXT_PLAIN("text/plain", 90L * 1024 * 1024),
     /** Markdown ({@code .md}), up to 90 MiB. */
-    TEXT_MARKDOWN("text/markdown", 90L * 1024 * 1024);
+    TEXT_MARKDOWN("text/markdown", 90L * 1024 * 1024),
+    /**
+     * LoRA weights ({@code .safetensors}), up to 2 GiB. The commit checks that the file is a
+     * complete safetensors file, and its URI goes in {@code loras[].path}. The upload ticket stays
+     * valid for two hours; a file this size usually needs a longer upload timeout than the default.
+     */
+    APPLICATION_OCTET_STREAM("application/octet-stream", 2L * 1024 * 1024 * 1024);
 
     private static final Map<String, UploadContentType> BY_EXTENSION = Map.ofEntries(
             Map.entry("jpg", IMAGE_JPEG),
@@ -83,7 +92,8 @@ public enum UploadContentType {
             Map.entry("numbers", APPLICATION_NUMBERS),
             Map.entry("txt", TEXT_PLAIN),
             Map.entry("md", TEXT_MARKDOWN),
-            Map.entry("markdown", TEXT_MARKDOWN));
+            Map.entry("markdown", TEXT_MARKDOWN),
+            Map.entry("safetensors", APPLICATION_OCTET_STREAM));
 
     private final String mediaType;
     private final long maxBytes;
@@ -104,13 +114,14 @@ public enum UploadContentType {
     }
 
     /**
-     * Whether this is one of the reference document types rather than an image, audio or video.
+     * Whether this is one of the reference document types rather than an image, audio, video or
+     * LoRA weights.
      *
      * @return true for PDF, Office, iWork, plain text and Markdown
      */
     public boolean document() {
         return !mediaType.startsWith("image/") && !mediaType.startsWith("audio/")
-                && !mediaType.startsWith("video/");
+                && !mediaType.startsWith("video/") && this != APPLICATION_OCTET_STREAM;
     }
 
     /**
@@ -141,6 +152,13 @@ public enum UploadContentType {
             }
         }
         throw new IllegalArgumentException("unsupported upload media type: " + mediaType);
+    }
+
+    // The extension table, for the test that every type the contract accepts can be inferred from
+    // some file name. The table is written by hand while the types follow the contract, and the
+    // contract once gained twelve document types the table had never heard of.
+    static Map<String, UploadContentType> byExtension() {
+        return BY_EXTENSION;
     }
 
     /**

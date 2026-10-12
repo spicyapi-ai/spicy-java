@@ -83,6 +83,53 @@ class ContractDriftTest {
     }
 
     @Test
+    @DisplayName("AssetErrorReason matches ErrorEnvelope.data.reason in the contract")
+    void assetErrorReasonsMatch() throws Exception {
+        Set<String> ours = Arrays.stream(AssetErrorReason.values())
+                .map(AssetErrorReason::wireValue)
+                .collect(Collectors.toCollection(TreeSet::new));
+
+        assertEquals(enumAfter("    ErrorEnvelope:", "reason:"), ours);
+    }
+
+    @Test
+    @DisplayName("AssetSort matches the sort parameter of listAssets in the contract")
+    void assetSortsMatch() throws Exception {
+        Set<String> ours = Arrays.stream(AssetSort.values())
+                .map(AssetSort::wireValue)
+                .collect(Collectors.toCollection(TreeSet::new));
+
+        assertEquals(enumAfter("operationId: listAssets", "name: sort"), ours);
+    }
+
+    @Test
+    @DisplayName("AssetKind and AssetSource match Asset.kind and Asset.source in the contract")
+    void assetKindsAndSourcesMatch() throws Exception {
+        Set<String> kinds = Arrays.stream(AssetKind.values())
+                .map(AssetKind::wireValue)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toCollection(TreeSet::new));
+        Set<String> sources = Arrays.stream(AssetSource.values())
+                .map(AssetSource::wireValue)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toCollection(TreeSet::new));
+
+        assertEquals(enumAfter("    Asset:", "kind:"), kinds);
+        assertEquals(enumAfter("    Asset:", "source:"), sources);
+        assertEquals(enumAfter("    AssetCreateRequest:", "source:"), sources);
+    }
+
+    @Test
+    @DisplayName("the asset routes this client calls are all in the pinned contract")
+    void assetRoutesExist() throws Exception {
+        String contract = Files.readString(PINNED, StandardCharsets.UTF_8);
+        for (String route : new String[] {"  /api/v1/assets:", "  /api/v1/assets/usage:",
+                "  /api/v1/assets/{assetId}:", "  /api/v1/assets/entities:", "  /api/v1/assets/entities/{entityId}:"}) {
+            assertTrue(contract.contains("\n" + route + "\n"), "the contract has no " + route.trim() + " route");
+        }
+    }
+
+    @Test
     @DisplayName("a dropped enum value is caught, and the failure names the missing value")
     void theCheckCanGoRed() throws Exception {
         // The counter-proof. A check that can never go red is not a check, and the only way to

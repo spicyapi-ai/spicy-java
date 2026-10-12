@@ -39,6 +39,10 @@ import java.util.Set;
  * reaches a chat model: send the {@code spicy://f/...} URI that {@link #uploadFile} returns in an
  * {@code image_url}, {@code video_url} or {@code audio_url} content part.
  *
+ * <p>Files used again and again belong in the asset library, {@link #assets()}: a saved file keeps
+ * a stable {@code spicy://a/...} reference until it is deleted, where an upload's {@code spicy://f/}
+ * URI lasts one day.
+ *
  * <h2>Dependencies</h2>
  * Jackson ({@code com.fasterxml.jackson.core:jackson-databind}) for JSON, and the JDK's own
  * {@link java.net.http.HttpClient} for transport. Nothing else.
@@ -231,6 +235,7 @@ public final class SpicyClient {
     private final HttpClient http;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private final SpicyAssets assets;
 
     private SpicyClient(Builder builder) {
         this.apiKey = builder.apiKey;
@@ -254,6 +259,7 @@ public final class SpicyClient {
                         .followRedirects(HttpClient.Redirect.NEVER)
                         .build()
                 : builder.httpClient;
+        this.assets = new SpicyAssets(this);
     }
 
     /**
@@ -588,6 +594,22 @@ public final class SpicyClient {
      */
     public int maxRetries() {
         return maxRetries;
+    }
+
+    // ── Asset library ───────────────────────────────────────────────────
+
+    /**
+     * The asset library the key reaches: the personal library for a personal key, the team's
+     * shared library for a team key.
+     *
+     * <p>Save files once and reference them as {@code spicy://a/<id>} in any media field of model
+     * inputs sent with keys of the same workspace, until they are deleted. Characters, the named
+     * image sets arranged in the console, are under {@link SpicyAssets#characters()}.
+     *
+     * @return this client's asset library namespace; the same instance on every call
+     */
+    public SpicyAssets assets() {
+        return assets;
     }
 
     // ── Catalogue ───────────────────────────────────────────────────────
@@ -1197,23 +1219,29 @@ public final class SpicyClient {
     public void putUploadBytes(UploadTicket ticket, byte[] data) {
         Objects.requireNonNull(ticket, "ticket");
         Objects.requireNonNull(data, "data");
-        if (ticket.maxBytes() > 0 && data.length > ticket.maxBytes()) {
+        putUpload(ticket, HttpRequest.BodyPublishers.ofByteArray(data), data.length);
+    }
+
+    // The PUT itself, for bytes in memory and for a file streamed from disk alike. The length is
+    // checked against the ticket before anything is sent; the publisher sets Content-Length to it.
+    private void putUpload(UploadTicket ticket, HttpRequest.BodyPublisher body, long length) {
+        if (ticket.maxBytes() > 0 && length > ticket.maxBytes()) {
             throw new SpicyUploadException(
-                    "file is " + data.length + " bytes, above the ticket limit of " + ticket.maxBytes(), 413);
+                    "file is " + length + " bytes, above the ticket limit of " + ticket.maxBytes(), 413);
         }
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(ticket.uploadUrl()))
                 .timeout(uploadTimeout);
         for (Map.Entry<String, String> header : ticket.headers().entrySet()) {
-            // Content-Length is in that set, and BodyPublishers.ofByteArray sets it to
-            // data.length — the same number declared to the ticket — so skipping it does not
-            // change what actually goes out.
+            // Content-Length is in that set, and the body publisher sets it to the real length —
+            // the same number declared to the ticket — so skipping it does not change what
+            // actually goes out.
             if (HEADERS_MANAGED_BY_THE_JDK.contains(header.getKey().toLowerCase(Locale.ROOT))) {
                 continue;
             }
             builder.header(header.getKey(), header.getValue());
         }
         HttpRequest put = builder
-                .method(ticket.method(), HttpRequest.BodyPublishers.ofByteArray(data))
+                .method(ticket.method(), body)
                 .build();
         try {
             HttpResponse<Void> response = http.send(put, HttpResponse.BodyHandlers.discarding());
@@ -1278,7 +1306,10 @@ public final class SpicyClient {
     /**
      * Uploads a file, inferring the media type from its extension.
      *
-     * <p>Free. Reads the whole file into memory, which the 90 MiB ceiling bounds.
+     * <p>Free. The file is streamed from disk rather than read into memory, because LoRA weights
+     * ({@code .safetensors}, sent as {@link UploadContentType#APPLICATION_OCTET_STREAM}) are accepted
+     * up to 2 GiB. A file that large needs a longer {@link Builder#uploadTimeout(Duration)} than the
+     * default unless the link sustains about 30 Mbps.
      *
      * @param path the file to upload
      * @return the committed file
@@ -1300,18 +1331,27 @@ public final class SpicyClient {
     /**
      * Uploads a file with an explicit media type.
      *
-     * <p>Free.
+     * <p>Free. The file is streamed from disk, not read into memory; see {@link #uploadFile(Path)}.
      *
      * @param path        the file to upload
      * @param contentType its media type, which the service verifies against the bytes
      * @return the committed file
-     * @throws NullPointerException    when either argument is null
-     * @throws IOException             when the file cannot be read
-     * @throws SpicyUploadException    when storage refuses the transfer
-     * @throws SpicyApiException       when the ticket or the commit is rejected
+     * @throws NullPointerException     when either argument is null
+     * @throws IllegalArgumentException when the file is empty or above the type's ceiling
+     * @throws IOException              when the file cannot be read
+     * @throws SpicyUploadException     when storage refuses the transfer
+     * @throws SpicyApiException        when the ticket or the commit is rejected
      */
     public UploadedFile uploadFile(Path path, UploadContentType contentType) throws IOException {
-        return uploadBytes(Files.readAllBytes(Objects.requireNonNull(path, "path")), contentType);
+        Objects.requireNonNull(path, "path");
+        Objects.requireNonNull(contentType, "contentType");
+        long size = Files.size(path);
+        // Open the file before asking for a ticket: a file that cannot be read should not leave a
+        // claimed object key behind.
+        HttpRequest.BodyPublisher body = HttpRequest.BodyPublishers.ofFile(path);
+        UploadTicket ticket = createUploadUrl(contentType, size);
+        putUpload(ticket, body, size);
+        return commitUploadedFile(ticket.fileId());
     }
 
     /**
@@ -1360,8 +1400,10 @@ public final class SpicyClient {
         return call("GET", path, null, Map.of(), true, timeout, TaskRecord.class);
     }
 
-    private <T> T call(String method, String path, Object body, Map<String, String> headers, boolean retryable,
-                       Duration timeout, Class<T> type) {
+    // Package-private so the asset namespaces share this one request pipeline: the same retries,
+    // envelope checks and error mapping, rather than a second copy that drifts.
+    <T> T call(String method, String path, Object body, Map<String, String> headers, boolean retryable,
+               Duration timeout, Class<T> type) {
         JsonNode data = callForData(method, path, body, headers, retryable, timeout);
         try {
             return mapper.treeToValue(data, type);
@@ -1442,9 +1484,10 @@ public final class SpicyClient {
             String requestId = envelope.path("request_id").asText("");
             if (status / 100 != 2 || code != 200) {
                 String message = envelope.path("msg").asText("the request failed with HTTP " + status);
-                SpicyApiException failure =
-                        new SpicyApiException(message, status, code, requestId, retryAfterOf(response));
-                if (retryable && attempt < maxRetries && failure.transientFailure()) {
+                SpicyApiException failure = new SpicyApiException(message, status, code, requestId,
+                        retryAfterOf(response), failureReason(envelope.get("data")));
+                if (retryable && attempt < maxRetries && failure.transientFailure()
+                        && !outlastsBudget(failure.retryAfter().orElse(null), deadline)) {
                     lastFailure = failure;
                     logRetry(method, path, "HTTP " + status + " code " + code, attempt);
                     backOff(attempt, failure.retryAfter().orElse(null), deadline);
@@ -1522,6 +1565,25 @@ public final class SpicyClient {
         }
     }
 
+    // A failure envelope may carry data: {"reason": "<code>"}. Any non-empty string is passed
+    // through verbatim, so a reason the service adds later still reaches the caller; anything that
+    // is not a string is treated as no reason at all.
+    private static String failureReason(JsonNode data) {
+        if (data == null || !data.isObject()) {
+            return null;
+        }
+        JsonNode reason = data.get("reason");
+        return reason != null && reason.isTextual() && !reason.asText().isEmpty() ? reason.asText() : null;
+    }
+
+    // When the service asks for a wait longer than the whole remaining budget, waiting cannot lead
+    // to another attempt: backOff would sleep to the deadline and then throw this very failure.
+    // Throwing it now gives the same answer without the dead time. The asset library's daily limit
+    // is the clear case, with a Retry-After that runs until 00:00 UTC.
+    private boolean outlastsBudget(Duration retryAfter, Instant deadline) {
+        return retryAfter != null && retryAfter.compareTo(Duration.between(clock.instant(), deadline)) >= 0;
+    }
+
     private void backOff(int attempt, Duration retryAfter, Instant deadline) {
         long exponential = Math.min(retryBaseDelay.toMillis() << Math.min(attempt, 16), maxRetryDelay.toMillis());
         // The server's own delay wins: it knows when the rate-limit window actually reopens,
@@ -1572,10 +1634,14 @@ public final class SpicyClient {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             return Map.of();
         }
+        return Map.of("Idempotency-Key", requireIdempotencyKey(idempotencyKey));
+    }
+
+    static String requireIdempotencyKey(String idempotencyKey) {
         String value = Internal.requireHeaderValue(idempotencyKey, "idempotencyKey");
         if (value.length() > 128) {
             throw new IllegalArgumentException("idempotencyKey must be at most 128 characters");
         }
-        return Map.of("Idempotency-Key", value);
+        return value;
     }
 }

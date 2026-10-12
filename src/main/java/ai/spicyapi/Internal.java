@@ -39,6 +39,29 @@ final class Internal {
         return text;
     }
 
+    // An identifier that goes into a path or a query string. Blank and line breaks are refused
+    // locally: a blank one would address the collection instead of one item (GET /assets/ is the
+    // listing), and neither can be what the caller meant.
+    static String requireIdentifier(String value, String label) {
+        String text = requireText(value, label);
+        if (text.indexOf('\r') >= 0 || text.indexOf('\n') >= 0) {
+            throw new IllegalArgumentException(label + " must not contain line breaks");
+        }
+        return text;
+    }
+
+    static final String ASSET_URI_PREFIX = "spicy://a/";
+
+    // Accepts either the bare id (ast_...) or the reference that goes into model input
+    // (spicy://a/ast_...), so a value copied from either place works. "spicy://a/" on its own is
+    // as empty as a blank string and is refused the same way.
+    static String bareAssetId(String value, String label) {
+        String text = requireIdentifier(value, label);
+        return text.startsWith(ASSET_URI_PREFIX)
+                ? requireIdentifier(text.substring(ASSET_URI_PREFIX.length()), label)
+                : text;
+    }
+
     static Duration requirePositive(Duration value, String label) {
         Objects.requireNonNull(value, label);
         if (value.isNegative() || value.isZero()) {

@@ -186,6 +186,72 @@ class MediaUploadTest {
     }
 
     @Test
+    @DisplayName("LoRA weights map from .safetensors to application/octet-stream, with a 2 GiB ceiling")
+    void loraWeights() throws Exception {
+        assertEquals(Optional.of(UploadContentType.APPLICATION_OCTET_STREAM),
+                UploadContentType.fromFileName("style-v2.SAFETENSORS"));
+        assertEquals(UploadContentType.APPLICATION_OCTET_STREAM,
+                UploadContentType.fromMediaType("application/octet-stream"));
+        assertEquals(2L * 1024 * 1024 * 1024, UploadContentType.APPLICATION_OCTET_STREAM.maxBytes());
+        assertFalse(UploadContentType.APPLICATION_OCTET_STREAM.document(),
+                "weights are not a reference document, whatever their media type looks like");
+
+        try (StubServer server = uploadStub()) {
+            SpicyClient client = server.client();
+
+            client.createUploadUrl(UploadContentType.APPLICATION_OCTET_STREAM, 1536L * 1024 * 1024);
+            String body = server.first("/upload-url").body();
+            assertTrue(body.contains("\"contentType\":\"application/octet-stream\""), body);
+            assertTrue(body.contains("\"bytes\":1610612736"), "1.5 GiB is above every other ceiling: " + body);
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> client.createUploadUrl(UploadContentType.APPLICATION_OCTET_STREAM, 2L * 1024 * 1024 * 1024 + 1));
+            assertEquals(1, server.count("/upload-url"), "the oversized declaration never left the process");
+        }
+    }
+
+    @Test
+    @DisplayName("every type the contract accepts can be inferred from some file extension")
+    void everyTypeHasAnExtension() {
+        for (UploadContentType type : UploadContentType.values()) {
+            assertTrue(UploadContentType.byExtension().containsValue(type),
+                    type + " has no extension, so uploadFile(path) would refuse a file the service takes");
+        }
+    }
+
+    @Test
+    @DisplayName("uploadFile streams the file's exact bytes from disk, with the real length")
+    void uploadFileStreamsTheFile(@TempDir Path directory) throws Exception {
+        byte[] content = new byte[64 * 1024 + 7];
+        // ASCII only, so the stub's text recording of the body is lossless and a byte-level
+        // difference cannot hide behind a replacement character.
+        for (int i = 0; i < content.length; i++) {
+            content[i] = (byte) ('a' + i % 26);
+        }
+        Path png = Files.write(directory.resolve("big.png"), content);
+        try (StubServer server = uploadStub()) {
+            server.client().uploadFile(png);
+
+            assertTrue(server.first("/upload-url").body().contains("\"bytes\":" + content.length));
+            StubServer.Recorded put = server.first("/storage/put");
+            assertEquals(Integer.toString(content.length), put.header("Content-Length"));
+            assertEquals(new String(content, java.nio.charset.StandardCharsets.US_ASCII), put.body(),
+                    "what reached storage is the file, byte for byte");
+        }
+    }
+
+    @Test
+    @DisplayName("a file that cannot be read claims no upload ticket")
+    void unreadableFileClaimsNoTicket(@TempDir Path directory) throws Exception {
+        try (StubServer server = uploadStub()) {
+            Path missing = directory.resolve("missing.png");
+
+            assertThrows(java.io.IOException.class, () -> server.client().uploadFile(missing));
+            assertEquals(0, server.count("/upload-url"));
+        }
+    }
+
+    @Test
     @DisplayName("a download URL can be minted for a named output")
     void downloadUrl() throws Exception {
         try (StubServer server = new StubServer().onData("/api/v1/common/download-url", """
