@@ -13,13 +13,19 @@ import java.util.List;
  * @param assets     generated artifacts; empty for a text-only result
  * @param transcript the structured transcript, with timing and language, on speech-to-text
  *                   endpoints that report it; {@code null} everywhere else
+ * @param embeddings vectors from a text embedding task, or {@code null}
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record TaskOutput(String text, List<TaskAsset> assets, TaskTranscript transcript) {
+public record TaskOutput(String text, List<TaskAsset> assets, TaskTranscript transcript, TaskEmbeddings embeddings) {
 
     // Text-only outputs carry no assets field; normalise it to an empty list.
     public TaskOutput {
         assets = Internal.emptyIfNull(assets);
+    }
+
+    /** Retains the original transcript-aware constructor. */
+    public TaskOutput(String text, List<TaskAsset> assets, TaskTranscript transcript) {
+        this(text, assets, transcript, null);
     }
 
     /**

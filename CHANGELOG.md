@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Decode embedding vectors and phrase-level transcript segments while retaining the previous constructors.
+
 ## 0.3.0
 
 - Add the asset library: keep files in a library and reference them as `spicy://a/<id>` in any media

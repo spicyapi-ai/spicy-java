@@ -19,15 +19,23 @@ import java.util.List;
  * @param words               timed words; empty when the model reports none
  * @param channels            one entry per audio channel when multichannel transcription was
  *                            requested; empty otherwise
+ * @param segments timed phrases, including speaker labels when available
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TaskTranscript(String text, String language, String languageCode, Double languageProbability,
                              Double durationSeconds, List<TaskTranscriptWord> words,
-                             List<TaskTranscriptChannel> channels) {
+                             List<TaskTranscriptChannel> channels, List<TaskTranscriptWord> segments) {
+
+    /** Retains the constructor used before phrase-level timing was available. */
+    public TaskTranscript(String text, String language, String languageCode, Double languageProbability,
+                          Double durationSeconds, List<TaskTranscriptWord> words, List<TaskTranscriptChannel> channels) {
+        this(text, language, languageCode, languageProbability, durationSeconds, words, channels, List.of());
+    }
 
     // Absent arrays become empty lists, so callers never null-check them.
     public TaskTranscript {
         words = Internal.emptyIfNull(words);
         channels = Internal.emptyIfNull(channels);
+        segments = Internal.emptyIfNull(segments);
     }
 }
