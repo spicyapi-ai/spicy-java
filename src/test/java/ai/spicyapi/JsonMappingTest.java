@@ -124,6 +124,20 @@ class JsonMappingTest {
     }
 
     @Test
+    void vectorAndSegmentOutputs() throws Exception {
+        TaskOutput output = MAPPER.readValue("""
+                {"embeddings":{"inputTokens":3,"data":[{"index":1,"embedding":[-0.25,0.5]}]},
+                 "transcript":{"segments":[{"text":"Hello","start":0.0,"end":1.25,"speakerId":"A"}]}}""", TaskOutput.class);
+        assertEquals(3, output.embeddings().inputTokens());
+        assertEquals(1, output.embeddings().data().get(0).index());
+        assertEquals(List.of(-0.25, 0.5), output.embeddings().data().get(0).embedding());
+        assertEquals("A", output.transcript().segments().get(0).speakerId());
+        TaskTranscript legacy = new TaskTranscript(null, null, null, null, null, null, null);
+        assertTrue(legacy.segments().isEmpty());
+        assertNull(new TaskOutput(null, null, legacy).embeddings());
+    }
+
+    @Test
     @DisplayName("layer decomposition assets carry their stacking order and placement")
     void layerMaps() throws Exception {
         TaskRecord record = MAPPER.readValue("""

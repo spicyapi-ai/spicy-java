@@ -18,7 +18,7 @@ speak the OpenAI, Anthropic and Gemini wire formats.
 <dependency>
   <groupId>ai.spicyapi</groupId>
   <artifactId>spicyapi-java</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
 </dependency>
 ```
 
@@ -58,7 +58,8 @@ Build the input from that model's own `inputSchema` — every model has differen
 whole result in the text field and return no files at all; a client that only looks for files
 reports a perfectly successful task as having produced nothing. A transcription that reports timing
 also has `transcript()`: the detected language, per-word start and end times and, for multichannel
-audio, one entry per channel.
+audio, one entry per channel. Use `segments()` for timed phrases. For embedding tasks,
+`task.output().embeddings().data()` provides each vector and its input index.
 
 A layer decomposition returns a base image followed by transparent layers. Each asset's `layer()`
 holds its `zIndex` and, when `positioned()`, the `boundingBox` that places it on the base; stack them
